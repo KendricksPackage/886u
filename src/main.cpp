@@ -1,5 +1,7 @@
 #include "main.h"
 #include "lemlib/api.hpp" // IWYU pragma: keep
+#include "lemlib/chassis/chassis.hpp"
+#include "pros/abstract_motor.hpp"
 #include "pros/adi.hpp"
 #include "pros/misc.h"
 #include "pros/rotation.hpp"
@@ -10,7 +12,7 @@ Controller master(E_CONTROLLER_MASTER);
 //-------------------------------Initializaiton---------------------------//
 // change port numbers before running
 pros::Motor intake(11); //bottom
-pros::Motor hood(-12); //top
+pros::Motor hood(-12, pros::MotorGearset::blue); //top
 
 adi::Pneumatics mogo_clamp(3,false);
 adi::Pneumatics doinker(8,false);
@@ -150,6 +152,8 @@ void on_center_button() {
 	}
 }
 
+
+/*
 int armState = 3;// 3states, 0 = loading, 1 = Ali, 2, wall , 3 afk
 void armTask(){
     int target;
@@ -171,13 +175,68 @@ void armTask(){
             error = target - rotation_sensor.get_position();
             hood.move(error*kP);
         } else if(armState == 2){
-            target = 17824;
+            target = 17900;
             error = target - rotation_sensor.get_position();
             hood.move(error*kP);
         }
         delay(20);
     }
 }
+*/
+
+int armState = 3; // 0 = loading, 1 = Ali, 2 = wall, 3 = AFK, 4 = hang
+void armTask(){
+    int target;
+    int error;
+    double kP = -0.02;
+    while(true){
+        if (armState != 3){
+            pto.extend();
+        }else if(armState ==5){
+            pto.retract();
+        }
+        else {
+            pto.retract();
+        }
+        if(armState == 0){
+            target = 11750; //12900
+            error = target - rotation_sensor.get_position();
+            hood.move(error*kP);
+        } 
+        else if(armState == 1){
+            target = 15300;//15600
+             error = target - rotation_sensor.get_position();
+            hood.move(error*kP);
+        } else if(armState == 2){
+            target = 17950;
+            error = target - rotation_sensor.get_position();
+            hood.move(error*kP);
+        } else if(armState == 4){
+            target = 16864;
+            error = target - rotation_sensor.get_position();
+            hood.move(error*kP);
+        }
+        delay(10);
+    }
+    /*(ouble kP = -0.2; // Increased speed
+    while(true){
+        if (armState != 3){
+            pto.extend();
+        } else {
+            pto.retract();
+        }
+        switch(armState){
+            case 0: target = 11750; break; // Loading
+            case 1: target = 15300; break; // Ali
+            case 2: target = 17900; break; // Wall
+            case 4: target = 12500; break; // Hang (10 deg above loading)
+            default: target = rotation_sensor.get_position();
+        }
+        error = target - rotation_sensor.get_position();
+        hood.move(error * kP);
+        delay(10); // Faster updates*/
+}
+
 /**
  * Runs initialization code. This occurs as soon as the program is started.
  *
@@ -189,6 +248,7 @@ bool autoFinish = false;
 void initialize() {
     pros::lcd::initialize(); // initialize brain screen
     chassis.calibrate(); // calibrate sensors
+    //rotation_sensor.reset_position();
     //pto.extend();
    // doinker.retract();
     // mogo_clamp.retract();
@@ -263,9 +323,35 @@ void red5A(){
 
 
 }
+
+void blueSafe(){
+    chassis.setPose(133.953,100.753,60);
+    chassis.moveToPose(107.67, 86, 65, 1000,{.forwards = false,.lead = 0});
+    chassis.waitUntilDone();
+    delay(10);
+    mogo_clamp.extend();
+    delay(10);
+    // chassis.swingToPoint(103,97,lemlib::DriveSide::LEFT,3000);
+    // chassis.swingToPoint(92, 111, lemlib::DriveSide::RIGHT, 3000);
+    intake.move(127);
+    hood.move(127);
+    chassis.moveToPose(96, 96, -40, 1300,{.lead = 0.2,.maxSpeed = 70});
+    //chassis.moveToPose(93, 100, 0, 1400,{.lead = 0});
+    chassis.moveToPose(92, 109,0, 1300,{.lead = 0,.maxSpeed = 80}); //before y was 110 x was 92
+    chassis.waitUntilDone();
+    delay(2000);
+    armState = 2;
+    delay(1000);
+    chassis.moveToPose(91.8, 122, 0,1300,{.lead = 0});
+    // chassis.moveToPose(91, 120, 0, 1400);
+    
+    
+}
+
 void autonomous() {
-    red5A();
+    //red5A();
     //red6();
+    blueSafe();
     //pto.extend();
     //run();
 	//blueRush();
@@ -286,7 +372,7 @@ void autonomous() {
  * task, not resume it from where it left off.
  */
 void opcontrol() {
-        pros::Task arm_task(armTask);
+    pros::Task arm_task(armTask);
 	bool driveSplitARc = true; 
 	bool tank = false;
     bool track = false;
@@ -297,27 +383,50 @@ void opcontrol() {
             driveSplitARc = !driveSplitARc; 
         }
         if(driveSplitARc){
-            int left_y = master.get_analog(ANALOG_LEFT_Y);  // Left joystick for left side
-            int right_y = master.get_analog(ANALOG_RIGHT_Y); // Right joystick for right side
-
-            leftMotor.move(left_y);  // Left side motors
-            rightMotor.move(right_y); // Right side motors
-
-        }else{
             int turn = master.get_analog(ANALOG_RIGHT_X); // Turn direction
             int forward = master.get_analog(ANALOG_LEFT_Y); // Forward/backward
 
             // Move the motors
             leftMotor.move(forward + turn);  // Left side motors
             rightMotor.move(forward - turn); // Right side motors
+
+        }else{
+            int left_y = master.get_analog(ANALOG_LEFT_Y);  // Left joystick for left side
+            int right_y = master.get_analog(ANALOG_RIGHT_Y); // Right joystick for right side
+
+            leftMotor.move(left_y);  // Left side motors
+            rightMotor.move(right_y); // Right side motors
 		}
         // Move the motors
       
 
 
         // Intake and hood controls
-        if (master.get_digital(DIGITAL_L1)) {
-            if(armState != 3){
+        if(master.get_digital_new_press(DIGITAL_R2)){
+            //toggle_pto();
+            // pto.toggle();
+            // track = !track;
+            // if(track){
+                armState = 2;
+                // hood.move(0);
+            // }else{
+            //     armState = 3;
+            // }
+            
+        
+        // } else if(master.get_digital_new_press(DIGITAL_)){
+        //     armState = 4;
+        } else if(master.get_digital_new_press(DIGITAL_X)){
+            armState = 0;
+        } else if(master.get_digital_new_press(DIGITAL_Y)){
+            armState = 1;
+        } else if(master.get_digital_new_press(DIGITAL_LEFT)){
+            armState = 3;
+        }else if(master.get_digital_new_press(DIGITAL_RIGHT)){
+            armState = 5;
+        }
+        else if (master.get_digital(DIGITAL_L1)) {
+            if(armState != 3 || armState != 5){
                 hood.move(0);
             }else{
                 intake.move(127);
@@ -326,20 +435,19 @@ void opcontrol() {
         } 
         // Redirect controls
         else if (master.get_digital(DIGITAL_L2)) {
-            if(armState != 3){
+            if(armState != 3 || armState != 5){
                 hood.move(0);
-            }{
+            }else{
                 intake.move(-127);
                 hood.move(-127);
             }
         } else if(master.get_digital(DIGITAL_R1)){
             intake.move(100);
-            hood.move(-30);
-        }
+        } 
         else {
             intake.move(0);
             hood.move(0);
-        }
+       }
         
         // Reverse controls
       /*  if (master.get_digital(DIGITAL_L2)) {
@@ -353,35 +461,14 @@ void opcontrol() {
         }
         // Sweeper pneumatics toggle
         if (master.get_digital_new_press(DIGITAL_A)) {
-           // doinker.extend();
+            doinker.toggle();
+             // doinker.extend();
             // state = !state;
             // if(state){
             //     doinker.extend();
             // }else{
             //     doinker.retract();
             // }
-            doinker.toggle();
-        }
-        if(master.get_digital_new_press(DIGITAL_R2)){
-            //toggle_pto();
-            // pto.toggle();
-            // track = !track;
-            // if(track){
-                armState = 2;
-                // hood.move(0);
-            // }else{
-            //     armState = 3;
-            // }
-        
-        }
-        if(master.get_digital_new_press(DIGITAL_X)){
-            armState = 0;
-        }
-        if(master.get_digital_new_press(DIGITAL_Y)){
-            armState = 1;
-        }
-        if(master.get_digital_new_press(DIGITAL_LEFT)){
-            armState = 3;
         }
        
         // if(master.get_digital(DIGITAL_R1)){
@@ -395,3 +482,4 @@ void opcontrol() {
         pros::delay(20); // Run for 20 ms then update
 	}
 }
+
